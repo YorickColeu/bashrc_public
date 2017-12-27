@@ -9,4 +9,4 @@
 #
 
 alias ll="ls -laF"
-
+alias tmux="tmux -f ~/Documents/configs/tmux_conf/.tmux.conf"
