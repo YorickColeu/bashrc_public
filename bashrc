@@ -3,10 +3,11 @@
 #
 # Exports
 #
+export TMUX_CONF=$HOME/.config/tmux_conf/.tmux.conf
 
 #
 # Aliases
 #
-
+alias grep="grep --color=auto"
 alias ll="ls -laF"
-alias tmux="tmux -f ~/Documents/configs/tmux_conf/.tmux.conf"
+alias tmux="tmux -f $TMUX_CONF"
