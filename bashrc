@@ -11,3 +11,4 @@ export TMUX_CONF=$HOME/.config/tmux_conf/.tmux.conf
 alias grep="grep --color=auto"
 alias ll="ls -laF"
 alias tmux="tmux -f $TMUX_CONF"
+alias yor_ssh='ssh -R 52698:localhost:52698'
