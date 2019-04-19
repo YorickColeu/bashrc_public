@@ -31,3 +31,11 @@ alias c="code"
 alias cdif="code --diff"
 
 alias x="xargs"
+
+#
+# OTHERS
+#
+# Open tmux automatically
+if [ -z "$TMUX" ]; then
+    tmux attach -t default || tmux new -s default
+fi
