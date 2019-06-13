@@ -12,8 +12,14 @@ alias grep="grep --color=auto"
 alias ll="ls -laF"
 alias tmux="tmux -f $TMUX_CONF"
 alias yor_git_melddiff='git difftool -t meld --dir-diff'
+alias yor_inotify='inotifywait -rm ./'
+alias yor_source='source ~/.bashrc'
 alias yor_ssh='ssh -R 52698:localhost:52698'
 alias yor_serial='sudo minicom -D /dev/ttyUSB0 -C /tmp/minicomtrace_$(date +%s).txt'
+# Kvm
+alias yor_kvm_list_osvariant='osinfo-query os'
+# Network
+alias yor_net_list_ports='sudo netstat -tulpn'
 
 #
 # Micro-aliases for over used commands
