@@ -1,0 +1,232 @@
+
+diff --git a/Makefile.am b/Makefile.am
+index 94b1564b..bb468391
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -134,6 +134,7 @@ dist_tmux_SOURCES = \
+ 	format-draw.c \
+ 	grid-view.c \
+ 	grid.c \
++	highlight.c \
+ 	input-keys.c \
+ 	input.c \
+ 	job.c \
+diff --git a/cmd-set-option.c b/cmd-set-option.c
+index 23b45230..47eb8098
+--- a/cmd-set-option.c
++++ b/cmd-set-option.c
+@@ -43,7 +43,7 @@ const struct cmd_entry cmd_set_option_entry = {
+ 	.name = "set-option",
+ 	.alias = "set",
+ 
+-	.args = { "aFgopqst:uw", 1, 2 },
++	.args = { "aFgopqst:uw", 1, 4 },
+ 	.usage = "[-aFgopqsuw] " CMD_TARGET_PANE_USAGE " option [value]",
+ 
+ 	.target = { 't', CMD_FIND_PANE, CMD_FIND_CANFAIL },
+@@ -283,6 +283,28 @@ fail:
+ 	return (CMD_RETURN_ERROR);
+ }
+ 
++/* Set a highlight option. */
++struct options_entry *
++cmd_set_highlight(struct cmd *self, struct cmd_q *cmdq,
++    const struct options_table_entry *oe, struct options *oo,
++    const char *value)
++{
++	int fg, ignorecase;
++
++	if (self->args->argc < 4) {
++		cmdq_error(cmdq, "bad argument count : %d", self->args->argc);
++		return (NULL);
++	}
++
++	fg = colour_fromstring(self->args->argv[2]);
++	ignorecase = atoi(self->args->argv[3]);
++	add_highlight(value,fg, ignorecase);
++	options_set_number(oo, oe->name, fg);
++	return (0);
++
++	// return (options_set_number(oo, oe->name, fg));
++}
++
+ static int
+ cmd_set_option_set(struct cmd *self, struct cmdq_item *item, struct options *oo,
+     struct options_entry *parent, const char *value)
+@@ -353,6 +375,11 @@ cmd_set_option_set(struct cmd *self, struct cmdq_item *item, struct options *oo,
+ 		return (0);
+ 	case OPTIONS_TABLE_COMMAND:
+ 		break;
++	case OPTIONS_TABLE_HIGHLIGHT:
++		o = cmd_set_highlight(self, item, oe, oo, value);
++		// o = cmd_set_highlight(self, oe->name, oe, oo, value);
++		break;
++
+ 	}
+ 	return (-1);
+ }
+diff --git a/input.c b/input.c
+index f37f8fd8..2b8d960e
+--- a/input.c
++++ b/input.c
+@@ -50,6 +50,9 @@
+  *   be passed to the underlying terminals.
+  */
+ 
++/* To restore the original fg after the highlighting */
++int original_fg = -1;
++
+ /* Input parser cell. */
+ struct input_cell {
+ 	struct grid_cell	cell;
+@@ -878,6 +881,10 @@ input_parse(struct window_pane *wp)
+ {
+ 	struct evbuffer		*evb = wp->event->input;
+ 
++	struct highlight_search_result search_res = {.find = 0};
++	size_t startIndex = 0;
++	size_t endIndex = 0;
++
+ 	input_parse_buffer(wp, EVBUFFER_DATA(evb), EVBUFFER_LENGTH(evb));
+ 	evbuffer_drain(evb, EVBUFFER_LENGTH(evb));
+ }
+@@ -890,6 +897,9 @@ input_parse_buffer(struct window_pane *wp, u_char *buf, size_t len)
+ 	struct screen_write_ctx		*sctx = &ictx->ctx;
+ 	const struct input_transition	*itr;
+ 	size_t				 off = 0;
++	size_t                           endIndex = 0;
++	size_t                           startIndex = 0;
++	struct highlight_search_result search_res = {.find = 0};
+ 
+ 	if (len == 0)
+ 		return;
+@@ -915,6 +925,26 @@ input_parse_buffer(struct window_pane *wp, u_char *buf, size_t len)
+ 	while (off < len) {
+ 		ictx->ch = buf[off++];
+ 
++		if (off > endIndex) {
++			if (original_fg >= 0) {
++				ictx->cell.cell.fg = original_fg;
++				original_fg = -1;
++			}
++
++			search_res = find_highlight_target((u_char*)((unsigned long)buf+endIndex));
++			if (search_res.find) {
++				startIndex = endIndex + search_res.start;
++				endIndex = endIndex + search_res.end;
++			}
++		}
++
++		if (search_res.find && startIndex < off && off <= endIndex) {
++			if (original_fg == -1) {
++				original_fg = ictx->cell.cell.fg;
++			}
++			ictx->cell.cell.fg = search_res.fg;
++		}
++
+ 		/* Find the transition. */
+ 		itr = ictx->state->transitions;
+ 		while (itr->first != -1 && itr->last != -1) {
+diff --git a/options-table.c b/options-table.c
+index ba7db3e1..e64e8c43
+--- a/options-table.c
++++ b/options-table.c
+@@ -781,6 +781,11 @@ const struct options_table_entry options_table[] = {
+ 	  .scope = OPTIONS_TABLE_WINDOW,
+ 	  .default_num = 1
+ 	},
++	{ .name = "trigger-highlight",
++	  .type = OPTIONS_TABLE_HIGHLIGHT,
++	  .scope = OPTIONS_TABLE_WINDOW,
++	  .default_num = -1
++	},
+ 
+ 	{ .name = "xterm-keys",
+ 	  .type = OPTIONS_TABLE_FLAG,
+diff --git a/options.c b/options.c
+index 1be9f8cd..a7f70d60
+--- a/options.c
++++ b/options.c
+@@ -72,7 +72,8 @@ static struct options_entry	*options_add(struct options *, const char *);
+ 	    (o)->tableentry->type == OPTIONS_TABLE_KEY ||		\
+ 	    (o)->tableentry->type == OPTIONS_TABLE_COLOUR ||		\
+ 	    (o)->tableentry->type == OPTIONS_TABLE_FLAG ||		\
+-	    (o)->tableentry->type == OPTIONS_TABLE_CHOICE))
++	    (o)->tableentry->type == OPTIONS_TABLE_CHOICE || \
++		(o)->tableentry->type == OPTIONS_TABLE_HIGHLIGHT))
+ #define OPTIONS_IS_STYLE(o) \
+ 	((o)->tableentry != NULL &&					\
+ 	    (o)->tableentry->type == OPTIONS_TABLE_STYLE)
+@@ -696,8 +697,14 @@ options_set_number(struct options *oo, const char *name, long long value)
+ 			return (NULL);
+ 	}
+ 
++	// (o)->tableentry->type == OPTIONS_TABLE_NUMBER
++	// (o)->tableentry->type == OPTIONS_TABLE_KEY
++	// (o)->tableentry->type == OPTIONS_TABLE_COLOUR
++	// (o)->tableentry->type == OPTIONS_TABLE_FLAG
++	// (o)->tableentry->type == OPTIONS_TABLE_CHOICE)
++
+ 	if (!OPTIONS_IS_NUMBER(o))
+-		fatalx("option %s is not a number", name);
++		fatalx("option %s is not a number, tableentry->type: %d", name, (o)->tableentry->type);
+ 	o->value.number = value;
+ 	return (o);
+ }
+diff --git a/tmux.h b/tmux.h
+index 9bf9f933..1531108c
+--- a/tmux.h
++++ b/tmux.h
+@@ -28,6 +28,7 @@
+ #include <stdio.h>
+ #include <termios.h>
+ #include <wchar.h>
++#include <regex.h>
+ 
+ #ifdef HAVE_UTEMPTER
+ #include <utempter.h>
+@@ -1131,6 +1132,22 @@ struct tty_term {
+ };
+ LIST_HEAD(tty_terms, tty_term);
+ 
++struct highlight{
++	char *regstr;
++	regex_t reg;
++	int fg;
++	int ignorecase;
++	LIST_ENTRY(highlight)	 lentry;
++};
++
++struct highlight_search_result{
++	int find;
++	off_t start;
++	off_t end;
++	int fg;
++};
++LIST_HEAD(highlightlist, highlight);
++
+ struct tty {
+ 	struct client	*client;
+ 
+@@ -1614,7 +1631,8 @@ enum options_table_type {
+ 	OPTIONS_TABLE_FLAG,
+ 	OPTIONS_TABLE_CHOICE,
+ 	OPTIONS_TABLE_STYLE,
+-	OPTIONS_TABLE_COMMAND
++	OPTIONS_TABLE_COMMAND,
++	OPTIONS_TABLE_HIGHLIGHT
+ };
+ 
+ #define OPTIONS_TABLE_NONE 0
+@@ -1856,6 +1874,11 @@ void		 job_kill_all(void);
+ int		 job_still_running(void);
+ void		 job_print_summary(struct cmdq_item *, int);
+ 
++/* highlight.c */
++extern struct highlightlist all_highlights;
++int add_highlight(const char *, int, int);
++struct highlight_search_result find_highlight_target(const u_char *);
++
+ /* environ.c */
+ struct environ *environ_create(void);
+ void	environ_free(struct environ *);
