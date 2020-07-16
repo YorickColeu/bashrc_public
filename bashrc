@@ -12,6 +12,8 @@ alias grep="grep --color=auto"
 alias ll="ls -laF"
 alias tmux="tmux -f $TMUX_CONF"
 alias yor_git_melddiff='git difftool -t meld --dir-diff'
+alias yor_git_patch_forceapply='git apply --reject --whitespace=fix'
+alias yor_git_update_master='git checkout master ; git pull ; git checkout -'
 alias yor_inotify='inotifywait -rm ./'
 alias yor_source='source ~/.bashrc'
 alias yor_ssh='ssh -R 52698:localhost:52698'
@@ -27,9 +29,21 @@ alias yor_net_list_ports='sudo netstat -tulpn'
 alias l="ls -laF"
 
 alias g="grep"
+alias gl="grep -l"
+alias gw="grep -w"
+alias gwl="grep -wl"
 alias gr="grep -r"
+alias grl="grep -rl"
+alias grw="grep -rw"
+alias grwl="grep -rwl"
 alias gi="grep -i"
+alias gil="grep -il"
+alias giw="grep -iw"
+alias giwl="grep -iwl"
 alias gri="grep -ri"
+alias gril="grep -ril"
+alias griw="grep -riw"
+alias griwl="grep -riwl"
 
 alias f="find -name"
 alias fy="find -iname"
